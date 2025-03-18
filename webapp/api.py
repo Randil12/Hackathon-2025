@@ -135,12 +135,12 @@ flag = st.sidebar.number_input("🚩 Flag", min_value=0, value=2)
 
 if st.sidebar.button("🔎 Vérifier l'anomalie"):
     payload = {
-        "duration": duration,
-        "protocol_type": reverse_protocol_map[protocol_type],  # Convertit tcp -> 0, udp -> 1, icmp -> 2
-        "src_bytes": src_bytes,
-        "dst_bytes": dst_bytes,
-        "service": service,
-        "flag": flag,
+        "duration": float(duration),
+        "protocol_type": protocol_type,  # ✅ Garde le string ("tcp", "udp", "icmp")
+        "src_bytes": int(src_bytes),
+        "dst_bytes": int(dst_bytes),
+        "service": int(service),
+        "flag": int(flag),
         "land": 0,
         "wrong_fragment": 0,
         "urgent": 0,
@@ -156,7 +156,26 @@ if st.sidebar.button("🔎 Vérifier l'anomalie"):
         "lnum_access_files": random.randint(0, 5),
         "lnum_outbound_cmds": 0,
         "is_host_login": random.choice([0, 1]),
-        "is_guest_login": random.choice([0, 1])
+        "is_guest_login": random.choice([0, 1]),
+        "count": random.randint(0, 500),
+        "srv_count": random.randint(0, 500),
+        "serror_rate": round(random.uniform(0, 1), 2),
+        "srv_serror_rate": round(random.uniform(0, 1), 2),
+        "rerror_rate": round(random.uniform(0, 1), 2),
+        "srv_rerror_rate": round(random.uniform(0, 1), 2),
+        "same_srv_rate": round(random.uniform(0, 1), 2),
+        "diff_srv_rate": round(random.uniform(0, 1), 2),
+        "srv_diff_host_rate": round(random.uniform(0, 1), 2),
+        "dst_host_count": random.randint(0, 255),
+        "dst_host_srv_count": random.randint(0, 255),
+        "dst_host_same_srv_rate": round(random.uniform(0, 1), 2),
+        "dst_host_diff_srv_rate": round(random.uniform(0, 1), 2),
+        "dst_host_same_src_port_rate": round(random.uniform(0, 1), 2),
+        "dst_host_srv_diff_host_rate": round(random.uniform(0, 1), 2),
+        "dst_host_serror_rate": round(random.uniform(0, 1), 2),
+        "dst_host_srv_serror_rate": round(random.uniform(0, 1), 2),
+        "dst_host_rerror_rate": round(random.uniform(0, 1), 2),
+        "dst_host_srv_rerror_rate": round(random.uniform(0, 1), 2)
     }
 
     try:
@@ -165,4 +184,4 @@ if st.sidebar.button("🔎 Vérifier l'anomalie"):
         result = response.json()
         st.sidebar.write(f"Résultat: {result.get('prediction', 'Erreur')} (Score: {result.get('score', 0):.4f})")
     except requests.exceptions.RequestException as e:
-        st.sidebar.error("⚠️ Réponse invalide de l'API")
+        st.sidebar.error(f"⚠️ Réponse invalide de l'API : {e}")
