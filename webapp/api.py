@@ -4,74 +4,90 @@ import requests
 import networkx as nx
 from pyvis.network import Network
 import streamlit.components.v1 as components
-import time
 import os
 import plotly.express as px
 
+# 📌 Configuration de la page
 st.set_page_config(page_title="Simulation Réseau KDD Cup 99", layout="wide")
-
 st.title("📡 Simulation des Connexions Réseau - KDD Cup 99")
 
-API_URL = "http://fastapi_app:8080"  # Adresse du serveur FastAPI
-protocol_map = {0: "tcp", 1: "udp", 2: "icmp"}  # Mapping des protocoles
-log_file = "logs_kdd99.csv"  # Fichier CSV de journalisation
+# 📌 Variables globales
+API_URL = "http://fastapi_app:8080"
+protocol_map = {0: "tcp", 1: "udp", 2: "icmp"}
+log_file = "logs_kdd99.csv"
 
-# 📌 Mode Playback - Simulation
-st.sidebar.header("🎛 Mode Playback")
-playback_mode = st.sidebar.radio("Sélectionner un mode :", ["Automatique", "Manuel"])
-num_connections = st.sidebar.slider("Nombre de connexions affichées", 10, 200, 50)
+# 📌 Mode Simulation
+display_mode = st.sidebar.radio("Mode de Simulation", ["Temps réel", "Replay"])
+n_connections = st.sidebar.slider("Nombre de connexions affichées", 10, 200, 50)
 
 # 📌 Fonction pour récupérer les connexions depuis FastAPI
 @st.cache_data
 def get_data(n):
     try:
-        response = requests.get(f"{API_URL}/connections?n={n}")
+        response = requests.get(f"http://fastapi_app:8080/connections?n={n}")
         response.raise_for_status()
         df = pd.DataFrame(response.json())
 
-        if "protocol_type" in df.columns:
-            df["protocol_type"] = df["protocol_type"].map(protocol_map)
+        # ✅ Vérification de la colonne protocol_type
+        print("🔍 Valeurs uniques de protocol_type AVANT correction :", df["protocol_type"].unique())
+
+        # ✅ Conversion explicite en `int` pour éviter les erreurs d'affichage
+        df["protocol_type"] = df["protocol_type"].astype(int)
+
+        # ✅ Vérification après conversion
+        print("✅ Valeurs uniques de protocol_type APRÈS correction :", df["protocol_type"].unique())
 
         return df
     except requests.exceptions.RequestException as e:
         st.error(f"❌ Erreur de connexion à l'API : {e}")
         return pd.DataFrame()
 
-df = get_data(num_connections)
+
+df = get_data(n_connections)
 
 if df.empty:
     st.warning("⚠️ Aucune donnée récupérée. Vérifiez la connexion à FastAPI.")
     st.stop()
 
-# 📌 Sélection des 50 connexions (ou selon le nombre défini)
-current_df = df.iloc[:num_connections]
+# 📌 Filtres interactifs
+st.sidebar.header("🔎 Filtres")
+all_ips = list(set(df["src_ip"].dropna().tolist() + df["dst_ip"].dropna().tolist()))
+selected_src_ip = st.sidebar.selectbox("IP Source", ["Toutes"] + all_ips)
+selected_dst_ip = st.sidebar.selectbox("IP Destination", ["Toutes"] + all_ips)
+selected_protocol = st.sidebar.selectbox("Protocole", ["Tous"] + df["protocol_type"].dropna().unique().tolist())
+min_duration = st.sidebar.slider("Durée minimum", 0, int(df["duration"].max()), 0)
 
-# 📊 Affichage des connexions filtrées
+filtered_df = df[
+    ((selected_src_ip == "Toutes") | (df["src_ip"] == selected_src_ip)) &
+    ((selected_dst_ip == "Toutes") | (df["dst_ip"] == selected_dst_ip)) &
+    ((selected_protocol == "Tous") | (df["protocol_type"] == selected_protocol)) &
+    (df["duration"] >= min_duration)
+]
+
+# 📌 Affichage des connexions filtrées
 st.subheader("🔍 Connexions Réseau")
-st.dataframe(current_df)
+st.dataframe(filtered_df)
 
-# 🚨 Détection des anomalies parmi les 50 connexions
-st.subheader("⚠️ Détection des Anomalies en Temps Réel")
-
+# 📌 Détection des anomalies
+st.subheader("⚠️ Détection des Anomalies")
 @st.cache_data
 def get_anomalies(data):
-    return data[data["anomaly"] == True]
+    return data[data["anomaly"] != "normal"]  # Tous ceux qui ne sont PAS "normal" sont des anomalies
 
-anomalies = get_anomalies(current_df)
+anomalies = get_anomalies(filtered_df)
 
 if not anomalies.empty:
-    st.error(f"🚨 **{len(anomalies)} anomalies détectées parmi les {num_connections} connexions affichées !**")
+    st.error(f"🚨 **{len(anomalies)} anomalies détectées parmi les {n_connections} connexions affichées !**")
     st.dataframe(anomalies)
 else:
     st.success("✅ Aucune anomalie détectée parmi les connexions affichées.")
 
-# 📈 🌐 Visualisation du réseau
+# 📌 Visualisation du réseau
 st.subheader("🌐 Visualisation du Réseau")
-
 G = nx.Graph()
 
-for _, row in current_df.iterrows():
-    color = "red" if row["anomaly"] else "green"
+for _, row in filtered_df.iterrows():
+    color = "red" if row["anomaly"] != "normal" else "green"
     G.add_edge(row["src_ip"], row["dst_ip"], color=color)
 
 net = Network(height="500px", width="100%", bgcolor="#222222", font_color="white")
@@ -84,48 +100,55 @@ components.html(HtmlFile.read(), height=500)
 # 📌 Journalisation des événements
 st.subheader("📜 Journalisation des Événements")
 
-if not current_df.empty:
+if not filtered_df.empty:
     if os.path.exists(log_file):
-        current_df.to_csv(log_file, mode='a', index=False, header=False)
+        filtered_df.to_csv(log_file, mode='a', index=False, header=False)
     else:
-        current_df.to_csv(log_file, index=False)
+        filtered_df.to_csv(log_file, index=False)
 
 st.success(f"✅ Journal des connexions enregistré dans `{log_file}`.")
-
 with open(log_file, "rb") as file:
     st.download_button("📥 Télécharger le journal des événements", file, log_file, "text/csv")
 
-# 📊 📈 Dashboards interactifs après la visualisation du réseau
+# 📊 📈 Statistiques et Analyse des Connexions
 st.subheader("📊 Statistiques et Analyse des Connexions")
 
 if not df.empty:
-    # ✅ Graphique des types de protocoles
-    protocol_counts = df["protocol_type"].value_counts().reset_index()
-    protocol_counts.columns = ["protocol_type", "count"]
-    fig_protocol = px.bar(protocol_counts, x="protocol_type", y="count", title="Nombre de connexions par protocole")
-    st.plotly_chart(fig_protocol)
+    # 📌 Nombre de connexions par label (anomaly)
+    label_counts = df["anomaly"].value_counts().reset_index()
+    label_counts.columns = ["anomaly", "count"]
+    fig_labels = px.bar(label_counts, x="anomaly", y="count", title="Nombre de connexions par label (normal vs anomalies)")
+    st.plotly_chart(fig_labels)
 
-    # ✅ Histogramme des scores d'anomalie
-    if "anomaly_score" in df.columns:
-        fig_anomaly = px.histogram(df, x="anomaly_score", nbins=50, title="Distribution des scores d'anomalie")
-        st.plotly_chart(fig_anomaly)
-    
-    # ✅ Répartition des anomalies (Pie Chart)
+    # 📌 Répartition des anomalies
     if "anomaly" in df.columns:
         fig_pie = px.pie(df, names="anomaly", title="Répartition des connexions normales vs anomalies")
         st.plotly_chart(fig_pie)
 else:
     st.warning("⚠️ Pas de données disponibles pour les statistiques.")
 
-# 📌 Envoi d'une connexion manuelle à FastAPI pour prédiction
+# 📌 Tester une connexion
 st.sidebar.header("🛠 Tester une connexion")
-
 duration = st.sidebar.number_input("⏳ Duration", min_value=0.0, value=0.0)
 protocol_type = st.sidebar.selectbox("🖧 Protocol Type", ["tcp", "udp", "icmp"])
 src_bytes = st.sidebar.number_input("📤 Src Bytes", min_value=0.0, value=0.0)
 dst_bytes = st.sidebar.number_input("📥 Dst Bytes", min_value=0.0, value=0.0)
+service = st.sidebar.number_input("💾 Service", min_value=0, value=0)
+flag = st.sidebar.number_input("🚩 Flag", min_value=0, value=0)
 
 if st.sidebar.button("🔎 Vérifier l'anomalie"):
     payload = {
         "duration": duration,
-        "protocol_type": list(protocol_map.keys())[list(protocol_map.values()).index(protocol_type)],}
+        "protocol_type": list(protocol_map.keys())[list(protocol_map.values()).index(protocol_type)],
+        "src_bytes": src_bytes,
+        "dst_bytes": dst_bytes,
+        "service": service,
+        "flag": flag
+    }
+    try:
+        response = requests.post(f"http://fastapi_app:8080/predict", json=payload)
+        response.raise_for_status()
+        result = response.json()
+        st.sidebar.write(f"Résultat: {result.get('prediction', 'Erreur')} (Score: {result.get('score', 0):.4f})")
+    except requests.exceptions.RequestException as e:
+        st.sidebar.error("⚠️ Réponse invalide de l'API")
