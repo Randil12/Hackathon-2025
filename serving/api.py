@@ -40,17 +40,36 @@ def get_connections(n: int = 50):
 
     return sample.to_dict(orient="records")
 
-class Connection(BaseModel):
+class DataPoint(BaseModel):
     duration: float
     protocol_type: int
     src_bytes: int
     dst_bytes: int
+    
+protocol_map = {"tcp": 0, "udp": 1, "icmp": 2}
 
 @app.post("/predict")
-def predict_anomaly(conn: Connection):
-    """Prédit si une connexion est une anomalie"""
-    data = pd.DataFrame([conn.dict()])
-    anomaly_score = model.decision_function(data)[0]
-    is_anomaly = model.predict(data)[0] == -1  # -1 = anomalie
+def predict_anomaly(data: DataPoint):
+    # Convertir les données en DataFrame
+    df = pd.DataFrame([data.dict()])
 
-    return {"anomaly_score": anomaly_score, "anomaly": is_anomaly}
+    # Encodage manuel du protocole
+    df["protocol_type"] = df["protocol_type"].map(protocol_map)
+
+    # Gérer les valeurs non reconnues
+    if df["protocol_type"].isnull().any():
+        return {"error": "Protocol type must be 'tcp', 'udp', or 'icmp'."}
+
+    # Normalisation simple (moyenne/écart-type fictifs issus du dataset d'entraînement)
+    df["duration"] = (df["duration"] - 100) / 200
+    df["src_bytes"] = (df["src_bytes"] - 500) / 1000
+    df["dst_bytes"] = (df["dst_bytes"] - 300) / 800
+
+    # Prédiction
+    prediction = model.predict(df)[0]
+    score = model.decision_function(df)[0]
+
+    return {
+        "prediction": "Anomalie" if prediction == -1 else "Normal",
+        "score": score
+    }
