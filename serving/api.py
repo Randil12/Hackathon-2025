@@ -98,33 +98,84 @@ def get_connections(n: int = 50):
 # Définition du modèle Pydantic pour prédiction
 class DataPoint(BaseModel):
     duration: float
-    protocol_type: int
+    protocol_type: str  # Reste en string, sera converti en int après
     src_bytes: int
     dst_bytes: int
     service: int
     flag: int
+    land: int
+    wrong_fragment: int
+    urgent: int
+    hot: int
+    num_failed_logins: int
+    logged_in: int
+    lnum_compromised: int
+    lroot_shell: int
+    lsu_attempted: int
+    lnum_root: int
+    lnum_file_creations: int
+    lnum_shells: int
+    lnum_access_files: int
+    lnum_outbound_cmds: int
+    is_host_login: int
+    is_guest_login: int
+    count: int
+    srv_count: int
+    serror_rate: float
+    srv_serror_rate: float
+    rerror_rate: float
+    srv_rerror_rate: float
+    same_srv_rate: float
+    diff_srv_rate: float
+    srv_diff_host_rate: float
+    dst_host_count: int
+    dst_host_srv_count: int
+    dst_host_same_srv_rate: float
+    dst_host_diff_srv_rate: float
+    dst_host_same_src_port_rate: float
+    dst_host_srv_diff_host_rate: float
+    dst_host_serror_rate: float
+    dst_host_srv_serror_rate: float
+    dst_host_rerror_rate: float
+    dst_host_srv_rerror_rate: float
 
 @app.post("/predict")
 def predict_anomaly(data: DataPoint):
     """Prédit si une connexion est une anomalie"""
-    df = pd.DataFrame([data.dict()])
+    try:
+        df = pd.DataFrame([data.dict()])
 
-    # Encodage du protocole
-    df["protocol_type"] = df["protocol_type"].map(protocol_map)
+        # ✅ Vérification et correction de `protocol_type`
+        if "protocol_type" in df.columns:
+            print("🔍 Avant transformation :", df["protocol_type"].unique())
+            df["protocol_type"] = df["protocol_type"].str.lower().map(protocol_map)
+            print("✅ Après transformation :", df["protocol_type"].unique())
 
-    # Vérifier si le protocole est valide
-    if df["protocol_type"].isnull().any():
-        return {"error": "Protocol type must be 'tcp', 'udp', or 'icmp'."}
+        # ✅ Encodage des variables catégoriques
+        if "service" in df.columns:
+            df["service"] = df["service"].astype("category").cat.codes
+        if "flag" in df.columns:
+            df["flag"] = df["flag"].astype("category").cat.codes
 
-    # Normalisation et PCA
-    features_scaled = scaler.transform(df)
-    features_pca = pca.transform(features_scaled)
+        # ✅ Vérifier si toutes les colonnes attendues sont là
+        expected_columns = list(scaler.feature_names_in_)
 
-    # Prédiction
-    prediction = model.predict(features_pca)[0]
-    score = model.predict_proba(features_pca)[:, 1][0]  # Probabilité d'anomalie
+        # ✅ Réorganiser les colonnes dans le bon ordre
+        df = df[expected_columns]
 
-    return {
-        "prediction": "Anomalie" if prediction == 0 else "Normal",
-        "score": score
-    }
+        # ✅ Appliquer la normalisation et la PCA
+        features_scaled = scaler.transform(df)
+        features_pca = pca.transform(features_scaled)
+
+        # ✅ Prédiction
+        prediction = model.predict(features_pca)[0]
+        score = model.predict_proba(features_pca)[:, 1][0]
+
+        return {
+            "prediction": "Anomalie" if prediction == 0 else "Normal",
+            "score": score
+        }
+
+    except Exception as e:
+        print("❌ ERREUR DANS /predict :", traceback.format_exc())  
+        return {"error": f"Problème dans /predict : {str(e)}"}
