@@ -81,7 +81,3 @@ David NGUYEN
 Jamil ABO-ALRUB
 
 
-
-
-
-Ce projet est sous licence MIT.
